@@ -39,8 +39,7 @@ function App() {
       
       setConnected(true);
     } catch (error) {
-      console.log(error)
-      debugger;
+      
       console.error('Error creating project:', error);
       setStatus('Error: ' + error.message);
     }
