@@ -1,0 +1,40 @@
+services:
+  agent-orchestrator:
+    extends:
+      file: docker-compose.yml
+      service: agent-orchestrator
+    volumes:
+      - ./agent-orchestrator/app:/app
+      - ./projects:/app/projects
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app
+
+  frontend-ui:
+    extends:
+      file: docker-compose.yml
+      service: frontend-ui
+    volumes:
+      - ./frontend-ui/src:/app/src:ro
+      - ./frontend-ui/public:/app/public:ro
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    command: npm run dev -- --host 0.0.0.0
+
+  # Add pgAdmin for database management
+  mongo-express:
+    image: mongo-express:latest
+    container_name: agent-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_ROOT_USER}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_ROOT_PASS}
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASS}@mongodb:27017/
+    depends_on:
+      - mongodb
+    networks:
+      - agent-network
+    profiles:
+      - dev
