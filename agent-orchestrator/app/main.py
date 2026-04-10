@@ -17,6 +17,29 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Agent Factory", version="1.0.0")
 
+# Custom JSON encoder for ObjectId
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+# Override JSON response class
+class CustomJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            cls=CustomJSONEncoder,
+        ).encode("utf-8")
+
+app.router.default_response_class = CustomJSONResponse
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -92,9 +115,16 @@ async def get_project(project_id: str):
 @app.get("/api/projects/{project_id}/schema")
 async def get_schema(project_id: str):
     """Get current architecture schema"""
+    print(f"🔍 Looking for schema for project: {project_id}")
+    
+    # Try to find schema by project_id
     schema = await db.get_schema(project_id)
+    
     if not schema:
+        print(f"❌ No schema found for project: {project_id}")
         raise HTTPException(status_code=404, detail="Schema not found")
+    
+    print(f"✅ Found schema for project: {project_id}")
     return schema
 
 @app.post("/api/projects/{project_id}/schema")
@@ -127,7 +157,6 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
     
     try:
         while True:
-            # Receive messages from client
             data = await websocket.receive_text()
             message = json.loads(data)
             
@@ -144,9 +173,15 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
         manager.disconnect(websocket, project_id)
         logger.info(f"WebSocket disconnected for project {project_id}")
 
-# Custom JSON encoder for ObjectId
-class JSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, ObjectId):
-            return str(obj)
-        return super().default(obj)
+@app.get("/api/debug/schemas")
+async def list_all_schemas():
+    """Debug endpoint to list all schemas"""
+    schemas = []
+    async for schema in db.db.architecture_schemas.find().limit(10):
+        schemas.append({
+            "id": str(schema["_id"]),
+            "project_id": str(schema["project_id"]),
+            "version": schema.get("version", 1),
+            "created_at": str(schema.get("created_at", ""))
+        })
+    return {"schemas": schemas}

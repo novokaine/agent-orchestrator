@@ -1,1 +1,6 @@
 ollama/
+frontend-ui/node_modules/
+app/__pycache__/
+app/agents/__pycache__/
+app/**/__pycache__/
+projects/

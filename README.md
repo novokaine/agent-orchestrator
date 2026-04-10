@@ -20,7 +20,7 @@ Agent Factory is a **containerized AI system** designed to:
 
 ## 🧩 System Architecture
 
-
+```
 ┌───────────────┐
 │ Frontend UI │ (React + WebSocket)
 └───────┬───────┘
@@ -41,8 +41,7 @@ LLM Database Cache
 │ Docker Sandbox│
 │ Code Execution│
 └───────────────┘
-
-
+```
 ---
 
 ## ⚙️ Core Components
@@ -138,7 +137,10 @@ LLM generates output (via Ollama)
 Code (if any) executed in sandbox
 Results stored (MongoDB)
 Updates streamed via WebSocket
-📁 Project Structure
+```
+
+### 📁 Project Structure
+```
 agent-factory/
 ├── agent-orchestrator/   # FastAPI backend
 ├── frontend-ui/          # React UI
@@ -146,6 +148,9 @@ agent-factory/
 ├── projects/             # generated code output
 ├── docker-compose.yml
 └── .env
+```
+
+```
 🎯 What Makes This Different
 ✅ Fully self-hosted (no SaaS dependency)
 ✅ Real code execution (not just text output)
@@ -163,3 +168,4 @@ Task planning layer
 Better execution tracing
 Role-based agents
 Improved UI/UX
+```

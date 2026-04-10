@@ -14,13 +14,13 @@ services:
       - OLLAMA_ORIGINS=*
       - OLLAMA_NUM_PARALLEL=4
       - OLLAMA_MAX_LOADED_MODELS=2
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command: serve
     networks:
       - agent-network
@@ -86,7 +86,7 @@ services:
       - MONGODB_URL=mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASS}@mongodb:27017/agent_factory?authSource=admin
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - MODEL_NAME=${LLM_MODEL:-llama3.1:70b-instruct-q4_K_M}
+      - MODEL_NAME=${LLM_MODEL:-codellama:7b-instruct-q4_K_M}
       - AGENT_LOG_LEVEL=${AGENT_LOG_LEVEL:-INFO}
       - SECRET_KEY=${SECRET_KEY}
     volumes:

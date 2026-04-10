@@ -1,5 +1,5 @@
-import asyncio
 import os
+import asyncio
 import json
 import logging
 from typing import Dict, Any
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class AgentOrchestrator:
     def __init__(self):
-        model_name = os.getenv("MODEL_NAME", "codellama:34b")
+        model_name = os.getenv("MODEL_NAME", "codellama:7b")
         self.llm = Ollama(
             base_url="http://ollama:11434",
             model=model_name,
@@ -25,145 +25,83 @@ class AgentOrchestrator:
         """Main orchestration flow for a project"""
         try:
             print(f"📋 Processing project {project_id}")
+            print(f"📋 Requirements: {requirements[:200]}...")
             
-            # Update status
             await db.update_project_status(project_id, "analyzing_requirements")
-            print("📋 Status: analyzing_requirements")
             
-            # Step 1: PM Agent analyzes requirements
+            # Step 1: PM Agent
+            print("📋 PM Agent: Analyzing...")
             pm_analysis = await self._pm_agent(requirements)
             await db.save_agent_output(project_id, "pm_agent", pm_analysis)
-            print("📋 PM Agent completed")
             
-            # Step 2: Architect Agent creates schema
+            # Step 2: Architect Agent
             await db.update_project_status(project_id, "creating_architecture")
-            print("📋 Creating architecture...")
-            
+            print("📋 Architect Agent: Creating schema...")
             architecture = await self._architect_agent(requirements, pm_analysis)
             await db.save_schema(project_id, architecture)
-            print("📋 Architecture created")
             
-            # Step 3: Wait for user approval
+            # Step 3: Wait for approval
             await db.update_project_status(project_id, "awaiting_approval")
-            print("📋 Awaiting approval")
-            
-            # Store in active projects for approval
             self.active_projects[project_id] = {
                 "requirements": requirements,
                 "architecture": architecture,
+                "pm_analysis": pm_analysis,
                 "status": "awaiting_approval"
             }
+            print("📋 Waiting for user approval...")
             
         except Exception as e:
-            print(f"❌ Error processing project {project_id}: {e}")
+            print(f"❌ Error: {e}")
             import traceback
             traceback.print_exc()
             await db.update_project_status(project_id, "error", str(e))
     
     async def _pm_agent(self, requirements: str) -> Dict:
         """Product Manager Agent - analyze requirements"""
-        prompt = f"""You are a Product Manager AI agent. Analyze these requirements and provide:
-        1. Clarifying questions (if any)
-        2. Key features breakdown
-        3. User stories
-        4. Technical constraints
-        
-        Requirements: {requirements}
-        
-        Return as JSON with keys: clarifying_questions, features, user_stories, constraints
-        """
-        
-        try:
-            response = self.llm.invoke(prompt)
-            print("📋 PM Agent response received")
-            
-            # Try to parse as JSON
-            try:
-                result = json.loads(response)
-            except:
-                result = {
-                    "clarifying_questions": [],
-                    "features": ["Feature extraction in progress"],
-                    "user_stories": ["User story extraction in progress"],
-                    "constraints": [],
-                    "raw_response": response
-                }
-            
-            return result
-        except Exception as e:
-            print(f"❌ PM Agent error: {e}")
-            return {
-                "clarifying_questions": [],
-                "features": ["Error analyzing requirements"],
-                "user_stories": [],
-                "constraints": [],
-                "error": str(e)
-            }
+        prompt = f"""Analyze these requirements and return a JSON object.
+
+Requirements: {requirements}
+
+Return JSON with these keys:
+- "project_name": string
+- "features": list of strings
+- "entities": list of strings (data entities like User, Product, etc.)
+- "has_auth": boolean
+- "api_endpoints": list of strings
+- "pages": list of strings (frontend pages needed)
+
+Return ONLY valid JSON. No other text.
+"""
+        response = self.llm.invoke(prompt)
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start != -1 and end != 0:
+            response = response[start:end]
+        return json.loads(response)
     
     async def _architect_agent(self, requirements: str, pm_analysis: Dict) -> Dict:
         """System Architect Agent - create architecture schema"""
-        prompt = f"""You are a System Architect AI agent. Based on these requirements, create a detailed architecture:
+        prompt = f"""Based on these requirements and analysis, create a technical architecture.
 
-        Requirements: {requirements}
-        PM Analysis: {json.dumps(pm_analysis, indent=2)}
-        
-        Provide a JSON schema with:
-        - database: MongoDB collections, indexes, relationships
-        - api_endpoints: REST endpoints, methods, request/response schemas
-        - frontend: React component hierarchy, state management, routes
-        - backend: Node.js modules, middleware, services
-        - deployment: Docker configuration, environment variables
-        
-        Return ONLY valid JSON.
-        """
-        
-        try:
-            response = self.llm.invoke(prompt)
-            print("📋 Architect Agent response received")
-            
-            # Try to parse JSON response
-            try:
-                architecture = json.loads(response)
-            except:
-                # Fallback structure
-                architecture = {
-                    "database": {
-                        "collections": ["users", "projects", "tasks"],
-                        "indexes": ["email", "created_at"]
-                    },
-                    "api_endpoints": [
-                        {"path": "/api/auth", "methods": ["POST"]},
-                        {"path": "/api/projects", "methods": ["GET", "POST", "PUT", "DELETE"]},
-                        {"path": "/api/tasks", "methods": ["GET", "POST", "PUT", "DELETE"]}
-                    ],
-                    "frontend": {
-                        "components": ["Header", "Sidebar", "Dashboard", "TaskList", "TaskForm"],
-                        "pages": ["Login", "Register", "Home", "Profile"],
-                        "state_management": "Redux/Context API"
-                    },
-                    "backend": {
-                        "modules": ["auth", "projects", "tasks", "users"],
-                        "middleware": ["auth", "errorHandler", "logger"]
-                    },
-                    "deployment": {
-                        "container": "Docker",
-                        "orchestration": "docker-compose"
-                    }
-                }
-            
-            # Generate Mermaid diagram
-            architecture["mermaid"] = self._generate_mermaid_diagram(architecture)
-            return architecture
-            
-        except Exception as e:
-            print(f"❌ Architect Agent error: {e}")
-            return {
-                "database": {"collections": ["users"]},
-                "api_endpoints": [],
-                "frontend": {"components": []},
-                "backend": {"modules": []},
-                "mermaid": "graph TD\n    A[Error] --> B[Failed to generate architecture]"
-            }
+Requirements: {requirements}
+Analysis: {json.dumps(pm_analysis, indent=2)}
+
+Return JSON with these keys:
+- "database": {{"collections": list of strings}}
+- "api_endpoints": list of {{"path": string, "method": string, "description": string}}
+- "frontend": {{"pages": list of strings, "components": list of strings}}
+- "backend": {{"models": list of strings, "routes": list of strings}}
+
+Return ONLY valid JSON. No other text.
+"""
+        response = self.llm.invoke(prompt)
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start != -1 and end != 0:
+            response = response[start:end]
+        architecture = json.loads(response)
+        architecture["mermaid"] = self._generate_mermaid_diagram(architecture)
+        return architecture
     
     def _generate_mermaid_diagram(self, architecture: Dict) -> str:
         """Generate Mermaid diagram from architecture"""
@@ -172,24 +110,31 @@ class AgentOrchestrator:
         mermaid += "    FE --> API[Node.js API]\n"
         mermaid += "    API --> DB[(MongoDB)]\n"
         
-        # Add collections if present
-        if "database" in architecture and "collections" in architecture["database"]:
-            for collection in architecture["database"]["collections"]:
+        if "database" in architecture and "collections" in architecture.get("database", {}):
+            for collection in architecture["database"].get("collections", [])[:3]:
                 mermaid += f"    DB --> {collection}[{collection}]\n"
         
-        # Add API endpoints
         if "api_endpoints" in architecture:
             for endpoint in architecture["api_endpoints"][:3]:
-                path = endpoint.get("path", "/api/unknown")
+                path = endpoint.get("path", "/api")
                 mermaid += f"    API -->|{path}| EP{path.replace('/', '_')}[{path}]\n"
         
         return mermaid
     
     async def approve_schema(self, project_id: str, schema: Dict):
-        """Called when user approves the schema"""
+        """User approved the schema - generate code"""
         project = self.active_projects.get(project_id)
         if not project:
-            print(f"⚠️ Project {project_id} not found in active projects")
+            db_project = await db.get_project(project_id)
+            if db_project:
+                project = {
+                    "requirements": db_project.get("requirements", ""),
+                    "architecture": schema,
+                    "pm_analysis": {}
+                }
+        
+        if not project:
+            print(f"❌ Project {project_id} not found")
             return
         
         await db.update_project(project_id, {
@@ -198,63 +143,73 @@ class AgentOrchestrator:
             "status": "building"
         })
         
-        print(f"📋 Schema approved for project {project_id}, starting build...")
-        
-        # Trigger build
-        await self._build_project(project_id, schema)
+        await self._build_project(project_id, schema, project.get("requirements", ""))
     
-    async def _build_project(self, project_id: str, schema: Dict):
-        """Code Agent - build the actual application"""
-        project = await db.get_project(project_id)
-        requirements = project.get("requirements", "")
-        
-        await db.update_project_status(project_id, "generating_code")
-        print("📋 Generating backend code...")
-        
-        # Step 1: Generate backend code
-        backend_code = await self._code_agent_backend(schema, requirements)
-        await db.save_generated_code(project_id, "backend", backend_code)
-        print(f"📋 Backend code generated with {len(backend_code)} files")
-        
-        # Step 2: Generate frontend code
-        print("📋 Generating frontend code...")
-        frontend_code = await self._code_agent_frontend(schema, requirements)
-        await db.save_generated_code(project_id, "frontend", frontend_code)
-        print(f"📋 Frontend code generated with {len(frontend_code)} files")
-        
-        # Step 3: Generate Docker files
-        print("📋 Generating Docker configuration...")
-        docker_config = await self._docker_agent(schema)
-        await db.save_generated_code(project_id, "docker", docker_config)
-        
-        # Write files to disk
-        await self._write_files_to_disk(project_id, backend_code, frontend_code, docker_config)
-        
-        await db.update_project_status(project_id, "completed")
-        print(f"✅ Project {project_id} build completed!")
+    async def _build_project(self, project_id: str, schema: Dict, requirements: str):
+        """Generate the actual code"""
+        try:
+            await db.update_project_status(project_id, "generating_code")
+            
+            print("📋 Generating backend code...")
+            backend_code = await self._code_agent_backend(requirements, schema)
+            await db.save_generated_code(project_id, "backend", backend_code)
+            
+            print("📋 Generating frontend code...")
+            frontend_code = await self._code_agent_frontend(requirements, schema)
+            await db.save_generated_code(project_id, "frontend", frontend_code)
+            
+            print("📋 Generating Docker files...")
+            docker_config = await self._docker_agent()
+            await db.save_generated_code(project_id, "docker", docker_config)
+            
+            await self._write_files_to_disk(project_id, backend_code, frontend_code, docker_config)
+            
+            await db.update_project_status(project_id, "completed")
+            print(f"✅ Project {project_id} completed!")
+            
+        except Exception as e:
+            print(f"❌ Build error: {e}")
+            import traceback
+            traceback.print_exc()
+            await db.update_project_status(project_id, "error", str(e))
     
-    async def _code_agent_backend(self, schema: Dict, requirements: str) -> Dict:
+    async def _code_agent_backend(self, requirements: str, schema: Dict) -> Dict:
         """Code Agent for backend generation"""
-        print("📋 Calling LLM for backend code generation...")
+        print("📋 LLM: Generating backend code...")
         
-        # For now, return a simple structure
-        # In production, this would call the LLM
-        return {
-            "server.js": "const express = require('express'); const app = express(); app.listen(3000);",
-            "package.json": '{"name": "backend", "version": "1.0.0"}'
-        }
+        prompt = f"""Generate a complete Node.js backend based on these requirements:
+
+{requirements}
+
+Return ONLY valid JSON with filenames as keys and file contents as values.
+Include: package.json, server.js, models/, routes/, middleware/, .env.example
+"""
+        response = self.llm.invoke(prompt)
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start != -1 and end != 0:
+            response = response[start:end]
+        return json.loads(response)
     
-    async def _code_agent_frontend(self, schema: Dict, requirements: str) -> Dict:
+    async def _code_agent_frontend(self, requirements: str, schema: Dict) -> Dict:
         """Code Agent for frontend generation"""
-        print("📋 Calling LLM for frontend code generation...")
+        print("📋 LLM: Generating frontend code...")
         
-        # For now, return a simple structure
-        return {
-            "App.jsx": "import React from 'react'; function App() { return <div>Hello World</div>; } export default App;",
-            "package.json": '{"name": "frontend", "version": "1.0.0"}'
-        }
+        prompt = f"""Generate a complete React frontend based on these requirements:
+
+{requirements}
+
+Return ONLY valid JSON with filenames as keys and file contents as values.
+Include: package.json, index.html, src/main.jsx, src/App.jsx, src/components/, src/pages/, src/context/, src/services/
+"""
+        response = self.llm.invoke(prompt)
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start != -1 and end != 0:
+            response = response[start:end]
+        return json.loads(response)
     
-    async def _docker_agent(self, schema: Dict) -> Dict:
+    async def _docker_agent(self) -> Dict:
         """Generate Docker configuration"""
         return {
             "docker-compose.yml": """version: '3.8'
@@ -263,41 +218,69 @@ services:
     build: ./backend
     ports:
       - "3000:3000"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/app
+    depends_on:
+      - mongodb
+
   frontend:
     build: ./frontend
     ports:
-      - "80:80\""""
+      - "80:80"
+
+  mongodb:
+    image: mongo:7.0
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data:""",
+            "backend/Dockerfile": """FROM node:18
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["node", "server.js"]""",
+            "frontend/Dockerfile": """FROM node:18 AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]"""
         }
     
     async def _write_files_to_disk(self, project_id: str, backend: Dict, frontend: Dict, docker: Dict):
         """Write generated files to disk"""
-        import os
         from pathlib import Path
         
         base_path = Path(f"/app/projects/{project_id}")
-        
-        # Create directories
         (base_path / "backend").mkdir(parents=True, exist_ok=True)
         (base_path / "frontend").mkdir(parents=True, exist_ok=True)
         
-        # Write backend files
         for filename, content in backend.items():
             filepath = base_path / "backend" / filename
             filepath.parent.mkdir(parents=True, exist_ok=True)
             with open(filepath, 'w') as f:
                 f.write(content)
+            print(f"  ✅ backend/{filename}")
         
-        # Write frontend files
         for filename, content in frontend.items():
             filepath = base_path / "frontend" / filename
             filepath.parent.mkdir(parents=True, exist_ok=True)
             with open(filepath, 'w') as f:
                 f.write(content)
+            print(f"  ✅ frontend/{filename}")
         
-        # Write Docker files
         for filename, content in docker.items():
             filepath = base_path / filename
             with open(filepath, 'w') as f:
                 f.write(content)
+            print(f"  ✅ {filename}")
         
-        print(f"✅ Files written to disk for project {project_id}")
+        print(f"✅ All files written to {base_path}")
